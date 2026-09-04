@@ -21,10 +21,10 @@ SillyTavern 的浏览器扩展无法执行 git，所以插件分两部分：
 
 | 部分 | 位置 | 作用 |
 |---|---|---|
-| UI 扩展（本仓库根目录） | 通过扩展面板安装 | 设置界面、备份/恢复按钮 |
-| 服务端插件（`server-plugin/`） | 手动复制到 `SillyTavern/plugins/st-git-backup/` | 真正执行 git 命令 |
+| UI 扩展（`manifest.json` + `ui/`） | 通过扩展面板安装 | 设置界面、备份/恢复按钮 |
+| 服务端插件（仓库根目录的 `index.js`） | install.bat 自动复制到 `SillyTavern/plugins/st-git-backup/` | 真正执行 git 命令 |
 
-### 安装（两步）
+### 安装（两步，第二步全自动）
 
 **第 1 步：安装 UI 扩展**
 
@@ -34,19 +34,31 @@ SillyTavern 顶部工具栏 → 拼图图标（Extensions）→ **Install extens
 https://github.com/coldpaper0953/st-git-backup
 ```
 
-**第 2 步：安装服务端插件**
+**第 2 步：一键配置服务端（自动）**
 
-1. 找到第 1 步下载的扩展目录：
-   `SillyTavern/public/scripts/extensions/third-party/st-git-backup/`
-2. 把里面的 **`server-plugin`** 文件夹复制为：
-   `SillyTavern/plugins/st-git-backup/`（复制后该目录下应能直接看到 `index.js`）
-3. 编辑 `SillyTavern/config.yaml`，设置：
-   ```yaml
-   enableServerPlugins: true
-   ```
-4. 重启 SillyTavern。启动日志出现 `[st-git-backup] server plugin initialized` 即成功
+打开刚装好的扩展目录：
 
-> Docker 用户：容器需要安装 git，且需把 `plugins/` 与 `data/` 目录挂载出来才能持久化。
+```
+SillyTavern/public/scripts/extensions/third-party/st-git-backup/
+```
+
+- **Windows**：双击 **`install.bat`**
+- **Linux / macOS**：终端运行 `sh install.sh`
+
+脚本会自动：把服务端插件复制到 `SillyTavern/plugins/st-git-backup/` → 把 `config.yaml` 的 `enableServerPlugins` 改为 `true`。
+
+**重启 SillyTavern**，启动日志出现 `[st-git-backup] server plugin initialized` 即成功。
+
+> Docker 用户：容器内需有 git；`plugins/` 与 `data/` 需挂载出来才能持久化。可在容器内运行 `sh install.sh`。
+
+<details>
+<summary>手动安装（不想跑脚本时）</summary>
+
+1. 把扩展目录整体复制为 `SillyTavern/plugins/st-git-backup/`（复制后该目录下应能直接看到 `index.js`）
+2. 编辑 `SillyTavern/config.yaml`：`enableServerPlugins: true`
+3. 重启 SillyTavern
+
+</details>
 
 ### 配置备份仓库
 
@@ -81,7 +93,7 @@ https://github.com/coldpaper0953/st-git-backup
 ### 数据安全说明
 
 - 私钥 / token 仅存于服务端本地 `settings.json`，不会被提交或推送
-- 默认排除的文件见 `server-plugin/index.js` 中 `buildGitignore()`；如需自定义可编辑数据目录下 `.gitignore` 中标记块之外的部分
+- 默认排除的文件见 `index.js` 中 `buildGitignore()`；如需自定义可编辑数据目录下 `.gitignore` 中标记块之外的部分
 
 ---
 
@@ -102,21 +114,14 @@ Browser extensions cannot run git, so the plugin has two parts:
 
 | Part | Location | Purpose |
 |---|---|---|
-| UI extension (repo root) | installed via the extensions panel | settings UI, backup/restore buttons |
-| Server plugin (`server-plugin/`) | manually copied to `SillyTavern/plugins/st-git-backup/` | runs git |
+| UI extension (`manifest.json` + `ui/`) | installed via the extensions panel | settings UI, backup/restore buttons |
+| Server plugin (repo-root `index.js`) | auto-copied by install.bat to `SillyTavern/plugins/st-git-backup/` | runs git |
 
-### Install (two steps)
+### Install (two steps, step 2 is automated)
 
 **Step 1 — UI extension**: Top bar → Extensions (puzzle icon) → **Install extension** → paste this repo URL.
 
-**Step 2 — Server plugin**:
-1. Open `SillyTavern/public/scripts/extensions/third-party/st-git-backup/`
-2. Copy the **`server-plugin`** folder to `SillyTavern/plugins/st-git-backup/` (you should see `index.js` directly inside)
-3. In `SillyTavern/config.yaml` set:
-   ```yaml
-   enableServerPlugins: true
-   ```
-4. Restart SillyTavern; look for `[st-git-backup] server plugin initialized` in the console
+**Step 2 — one-click server setup**: open the installed extension folder `SillyTavern/public/scripts/extensions/third-party/st-git-backup/` and run **`install.bat`** (Windows) or `sh install.sh` (Linux/macOS). The script copies the server plugin to `SillyTavern/plugins/st-git-backup/` and sets `enableServerPlugins: true` in config.yaml. Then **restart SillyTavern** and look for `[st-git-backup] server plugin initialized` in the console.
 
 ### Configure
 

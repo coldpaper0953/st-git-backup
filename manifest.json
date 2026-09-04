@@ -3,10 +3,10 @@
     "loading_order": 100,
     "requires": [],
     "optional": [],
-    "js": "index.js",
-    "css": "style.css",
+    "js": "ui/index.js",
+    "css": "ui/style.css",
     "author": "coldpaper0953",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "homePage": "",
     "auto_update": false
 }

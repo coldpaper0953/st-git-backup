@@ -1,5 +1,6 @@
-# Server plugin local settings — contains tokens / key paths, NEVER commit
-server-plugin/settings.json
+# Server plugin local settings (written next to index.js when installed into
+# plugins/st-git-backup/) — contains tokens / key paths, NEVER commit
+/settings.json
 
 node_modules/
 *.log

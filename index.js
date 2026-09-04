@@ -1,301 +1,468 @@
-// ST Git Backup — SillyTavern UI extension
-// Settings live in the extensions panel; a quick "backup now" icon can be
-// injected into the top bar. All git work is done by the companion server
-// plugin (/api/plugins/st-git-backup).
+// ST Git Backup — SillyTavern server plugin
+// Backs up / restores the current user's data directory to a git remote.
+// Install: copy this folder into <SillyTavern>/plugins/st-git-backup and set
+// enableServerPlugins: true in config.yaml, then restart SillyTavern.
 
-import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../extensions.js';
-import { saveSettingsDebounced } from '../../../script.js';
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const PLUGIN_ID = 'st-git-backup';
-const API_BASE = `/api/plugins/${PLUGIN_ID}`;
+const MARKER_FILE = '.st-git-backup';
+const SETTINGS_FILE = path.join(__dirname, 'settings.json');
+// plugin lives at <SillyTavern>/plugins/st-git-backup/ -> server root two levels up
+const ST_ROOT = path.join(__dirname, '..', '..');
+const GIT_TIMEOUT_MS = 10 * 60 * 1000;
+
+const DEFAULT_SETTINGS = {
+    repoUrl: '',
+    branch: 'main',
+    authType: 'none', // 'none' | 'ssh' | 'pat'
+    sshKeyPath: '',
+    token: '',
+    includeSecrets: false,
+    autoBackupHours: 0,
+    dataDirOverride: '',
+    gitPath: '', // empty = auto-detect
+    authorName: 'ST Git Backup',
+    authorEmail: 'st-git-backup@localhost',
+};
+
 const TOKEN_MASK = '********';
 
-const extensionName = (() => {
-    const dir = new URL('.', import.meta.url).pathname.replace(/\/+$/, '').split('/').pop();
-    return `third-party/${decodeURIComponent(dir || '')}`;
-})();
+let settings = loadSettings();
+let busy = false;
+let autoTimer = null;
 
-const uiSettings = { ...{ quickButton: true }, ...(extension_settings[PLUGIN_ID] || {}) };
+const info = {
+    id: PLUGIN_ID,
+    name: 'ST Git Backup',
+    description: 'Backup and restore SillyTavern user data to a git repository.',
+};
 
-function saveUiSettings() {
-    extension_settings[PLUGIN_ID] = uiSettings;
-    saveSettingsDebounced();
-}
-
-function log(...args) {
-    console.log('[st-git-backup]', ...args);
-}
-
-async function api(path, options = {}) {
-    const ctx = getContext();
-    const response = await fetch(API_BASE + path, {
-        method: options.method || 'GET',
-        headers: ctx.getRequestHeaders(),
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    });
-    let data = null;
+function loadSettings() {
     try {
-        data = await response.json();
+        const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
     } catch {
-        // non-JSON response
-    }
-    if (!response.ok) {
-        throw new Error(data?.error || `HTTP ${response.status}`);
-    }
-    return data;
-}
-
-function setText(selector, value) {
-    const el = document.querySelector(selector);
-    if (el) {
-        el.textContent = value;
+        return { ...DEFAULT_SETTINGS };
     }
 }
 
-function setBusy(button, busy, busyText) {
-    if (!button) {
-        return;
+function saveSettings() {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 4), 'utf8');
+}
+
+// ---------- git helpers ----------
+
+function findGitExecutable() {
+    if (settings.gitPath && fs.existsSync(settings.gitPath)) {
+        return settings.gitPath;
     }
-    if (busy) {
-        button.dataset.originalText = button.textContent;
-        button.textContent = busyText;
-        button.disabled = true;
+    const candidates = [];
+    if (process.platform === 'win32') {
+        candidates.push(
+            path.join(ST_ROOT, '..', 'env', 'bin', 'git.exe'), // SillyTavernLauncher portable git
+            path.join(ST_ROOT, '..', 'env', 'cmd', 'git.exe'),
+            path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Git', 'cmd', 'git.exe'),
+            path.join(process.env['LOCALAPPDATA'] || '', 'Programs', 'Git', 'cmd', 'git.exe'),
+        );
     } else {
-        button.textContent = button.dataset.originalText ?? button.textContent;
-        button.disabled = false;
+        candidates.push('/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git');
     }
-}
-
-// ---------- server plugin status ----------
-
-async function refreshInfo() {
-    const missing = document.querySelector('#stgb_server_missing');
-    const content = document.querySelector('#stgb_content');
-    try {
-        const info = await api('/info');
-        if (missing) {
-            missing.style.display = 'none';
-        }
-        if (content) {
-            content.style.display = '';
-        }
-        setText('#stgb_info_git', info.gitVersion || '未检测到 git（在插件设置里指定 gitPath）');
-        setText('#stgb_info_dir', info.dataDir || '-');
-        setText('#stgb_info_last', info.lastCommit || '（仓库为空）');
-        const dot = document.querySelector('#stgb_status_dot');
-        if (dot) {
-            dot.className = 'stgb-status-dot ' + (info.remoteConfigured ? 'ok' : 'idle');
-        }
-        setText('#stgb_status_text', info.remoteConfigured ? '已配置远端仓库' : '未配置远端仓库');
-    } catch (err) {
-        // server plugin not loaded -> show install instructions
-        if (missing) {
-            missing.style.display = '';
-        }
-        if (content) {
-            content.style.display = 'none';
-        }
-        log('server plugin not reachable:', err);
-    }
-}
-
-// ---------- settings form ----------
-
-function applyAuthVisibility() {
-    const authType = document.querySelector('#stgb_auth_type')?.value;
-    document.querySelector('#stgb_ssh_row').style.display = authType === 'ssh' ? '' : 'none';
-    document.querySelector('#stgb_token_row').style.display = authType === 'pat' ? '' : 'none';
-}
-
-async function loadSettingsForm() {
-    try {
-        const settings = await api('/settings');
-        const map = {
-            stgb_repo_url: settings.repoUrl,
-            stgb_branch: settings.branch || 'main',
-            stgb_auth_type: settings.authType || 'none',
-            stgb_ssh_key: settings.sshKeyPath,
-            stgb_token: settings.hasToken ? TOKEN_MASK : '',
-            stgb_include_secrets: settings.includeSecrets,
-            stgb_auto_hours: settings.autoBackupHours || 0,
-        };
-        for (const [id, value] of Object.entries(map)) {
-            const el = document.querySelector(`#${id}`);
-            if (!el) {
-                continue;
+    for (const candidate of candidates) {
+        try {
+            if (candidate && fs.existsSync(candidate)) {
+                return candidate;
             }
-            if (el.type === 'checkbox') {
-                el.checked = Boolean(value);
+        } catch {
+            // ignore
+        }
+    }
+    return 'git'; // rely on PATH as last resort
+}
+
+function runGit(args, cwd, extraEnv = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(findGitExecutable(), args, {
+            cwd,
+            env: { ...process.env, ...extraEnv },
+            windowsHide: true,
+        });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => {
+            child.kill();
+            reject(new Error(`git ${args[0]} timed out after ${GIT_TIMEOUT_MS / 1000}s`));
+        }, GIT_TIMEOUT_MS);
+        child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        child.on('error', (err) => {
+            clearTimeout(timer);
+            reject(new Error(`Failed to start git (${err.message}). Set "gitPath" in plugin settings if git is not on PATH.`));
+        });
+        child.on('close', (code) => {
+            clearTimeout(timer);
+            if (code === 0) {
+                resolve({ stdout, stderr });
             } else {
-                el.value = value ?? '';
+                const message = (stderr || stdout || `exit code ${code}`).trim();
+                reject(new Error(`git ${args.join(' ')} failed: ${message}`));
             }
+        });
+    });
+}
+
+function buildEnv() {
+    const env = {};
+    if (settings.authType === 'ssh' && settings.sshKeyPath) {
+        const key = settings.sshKeyPath.replace(/"/g, '');
+        env.GIT_SSH_COMMAND = `ssh -i "${key}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`;
+    }
+    return env;
+}
+
+// Remote URL to use for a network operation, injecting the PAT if needed.
+function remoteUrl(rawUrl) {
+    if (settings.authType !== 'pat' || !settings.token) {
+        return rawUrl;
+    }
+    try {
+        const url = new URL(rawUrl);
+        if (url.protocol !== 'https:') {
+            throw new Error('PAT auth requires an https:// repository URL');
         }
-        applyAuthVisibility();
+        url.username = 'x-access-token';
+        url.password = encodeURIComponent(settings.token);
+        return url.toString();
     } catch (err) {
-        log('failed to load settings:', err);
+        throw new Error(`Invalid repository URL: ${err.message}`);
     }
 }
 
-async function saveSettingsForm() {
-    const val = (id) => document.querySelector(`#${id}`)?.value ?? '';
-    const body = {
-        repoUrl: val('stgb_repo_url').trim(),
-        branch: val('stgb_branch').trim() || 'main',
-        authType: val('stgb_auth_type'),
-        sshKeyPath: val('stgb_ssh_key').trim(),
-        token: val('stgb_token'),
-        includeSecrets: document.querySelector('#stgb_include_secrets')?.checked ?? false,
-        autoBackupHours: Number(val('stgb_auto_hours')) || 0,
-    };
-    const saved = await api('/settings', { method: 'POST', body });
-    document.querySelector('#stgb_token').value = saved.hasToken ? TOKEN_MASK : '';
-    toastr.success('设置已保存（保存在服务端插件目录）');
-    await refreshInfo();
+function sanitizeRemoteUrl(rawUrl) {
+    try {
+        const url = new URL(rawUrl);
+        url.username = '';
+        url.password = '';
+        return url.toString();
+    } catch {
+        return rawUrl;
+    }
 }
 
-// ---------- actions ----------
+// ---------- data directory ----------
+
+function getDataDir(req) {
+    if (settings.dataDirOverride) {
+        return path.resolve(settings.dataDirOverride);
+    }
+    const fromRequest = req?.user?.directories?.root;
+    if (fromRequest) {
+        return path.resolve(fromRequest);
+    }
+    return path.join(ST_ROOT, 'data', 'default-user');
+}
+
+function buildGitignore(settings) {
+    const lines = [
+        '# >>> st-git-backup managed >>>',
+    ];
+    if (!settings.includeSecrets) {
+        lines.push('secrets.json');
+    }
+    lines.push(
+        'backups/',
+        'thumbnails/',
+        'vectors/',
+        '.cache/',
+        '# <<< st-git-backup managed <<<',
+    );
+    return lines.join('\n') + '\n';
+}
+
+function writeGitignore(dataDir) {
+    const file = path.join(dataDir, '.gitignore');
+    let existing = '';
+    try {
+        existing = fs.readFileSync(file, 'utf8');
+    } catch {
+        // no existing file
+    }
+    const start = existing.indexOf('# >>> st-git-backup managed >>>');
+    const end = existing.indexOf('# <<< st-git-backup managed <<<');
+    let preserved = '';
+    if (start !== -1 && end !== -1) {
+        preserved = (existing.slice(0, start) + existing.slice(end + '# <<< st-git-backup managed <<<'.length)).replace(/^\n+/, '');
+    } else if (start === -1) {
+        preserved = existing;
+    }
+    fs.writeFileSync(file, buildGitignore(settings) + (preserved ? '\n' + preserved : ''), 'utf8');
+}
+
+async function ensureRepo(dataDir) {
+    if (!fs.existsSync(dataDir)) {
+        throw new Error(`Data directory does not exist: ${dataDir}`);
+    }
+    const gitDir = path.join(dataDir, '.git');
+    const markerPath = path.join(dataDir, MARKER_FILE);
+
+    if (fs.existsSync(gitDir) && !fs.existsSync(markerPath)) {
+        throw new Error('REFUSE_FOREIGN_REPO');
+    }
+
+    if (!fs.existsSync(gitDir)) {
+        const branch = settings.branch || 'main';
+        try {
+            await runGit(['init', '-b', branch], dataDir);
+        } catch {
+            // older git without -b
+            await runGit(['init'], dataDir);
+            await runGit(['symbolic-ref', 'HEAD', `refs/heads/${branch}`], dataDir);
+        }
+    }
+
+    if (!fs.existsSync(markerPath)) {
+        fs.writeFileSync(markerPath, JSON.stringify({ plugin: PLUGIN_ID, createdAt: new Date().toISOString() }, null, 4), 'utf8');
+    }
+    writeGitignore(dataDir);
+
+    await runGit(['config', 'user.name', settings.authorName], dataDir);
+    await runGit(['config', 'user.email', settings.authorEmail], dataDir);
+    // never let line-ending conversion rewrite the whole tree
+    await runGit(['config', 'core.autocrlf', 'false'], dataDir);
+
+    if (settings.repoUrl) {
+        const clean = settings.authType === 'pat' ? sanitizeRemoteUrl(settings.repoUrl) : settings.repoUrl;
+        const remotes = await runGit(['remote'], dataDir);
+        if (remotes.stdout.split(/\s+/).includes('origin')) {
+            await runGit(['remote', 'set-url', 'origin', clean], dataDir);
+        } else {
+            await runGit(['remote', 'add', 'origin', clean], dataDir);
+        }
+    }
+}
+
+async function currentBranch(dataDir) {
+    const { stdout } = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], dataDir);
+    return stdout.trim();
+}
+
+// ---------- operations ----------
+
+async function performBackup(dataDir, message) {
+    await ensureRepo(dataDir);
+    await runGit(['add', '-A'], dataDir);
+    const status = await runGit(['status', '--porcelain'], dataDir);
+    const result = { committed: false, pushed: false, commit: null };
+
+    if (status.stdout.trim().length === 0) {
+        return result; // nothing changed
+    }
+
+    const commitMessage = message || `ST Git Backup ${new Date().toISOString()}`;
+    await runGit(['commit', '-m', commitMessage], dataDir);
+    result.committed = true;
+    const head = await runGit(['rev-parse', 'HEAD'], dataDir);
+    result.commit = head.stdout.trim();
+
+    if (settings.repoUrl) {
+        const branch = await currentBranch(dataDir);
+        const pushTarget = remoteUrl(settings.repoUrl);
+        await runGit(['push', pushTarget, `HEAD:refs/heads/${branch}`], dataDir, buildEnv());
+        result.pushed = true;
+    }
+    return result;
+}
+
+async function performRestore(dataDir, commitRef) {
+    await ensureRepo(dataDir);
+    if (settings.repoUrl) {
+        const branch = settings.branch || 'main';
+        await runGit(['fetch', remoteUrl(settings.repoUrl), branch], dataDir, buildEnv());
+    }
+    const target = commitRef || 'FETCH_HEAD';
+    await runGit(['reset', '--hard', target], dataDir);
+    const head = await runGit(['rev-parse', 'HEAD'], dataDir);
+    return { commit: head.stdout.trim() };
+}
+
+async function getLog(dataDir, shouldFetch) {
+    await ensureRepo(dataDir);
+    if (shouldFetch && settings.repoUrl) {
+        const branch = settings.branch || 'main';
+        await runGit(['fetch', remoteUrl(settings.repoUrl), branch], dataDir, buildEnv());
+    }
+    const { stdout } = await runGit(
+        ['log', '-n', '50', '--pretty=format:%H%x1f%h%x1f%cI%x1f%s'],
+        dataDir,
+    ).catch(() => ({ stdout: '' }));
+    return stdout
+        .split('\n')
+        .filter((line) => line.trim().length > 0)
+        .map((line) => {
+            const [hash, short, date, subject] = line.split('\x1f');
+            return { hash, short, date, subject };
+        });
+}
 
 async function testConnection() {
-    const button = document.querySelector('#stgb_test');
-    setBusy(button, true, '测试中…');
-    try {
-        await saveSettingsForm();
-        const result = await api('/test');
-        toastr.success(`连接成功，远端包含 ${result.refs} 个引用`);
-    } catch (err) {
-        toastr.error(`连接失败：${err.message}`);
-    } finally {
-        setBusy(button, false);
+    if (!settings.repoUrl) {
+        throw new Error('Repository URL is not configured');
     }
+    const { stdout } = await runGit(['ls-remote', remoteUrl(settings.repoUrl)], os.tmpdir(), buildEnv());
+    return { refs: stdout.split('\n').filter((l) => l.trim()).length };
 }
 
-async function backupNow(showToast = true) {
-    const button = document.querySelector('#stgb_backup');
-    setBusy(button, true, '备份中…');
-    try {
-        const message = document.querySelector('#stgb_commit_message')?.value.trim();
-        const result = await api('/backup', { method: 'POST', body: { message: message || undefined } });
-        if (!result.committed) {
-            if (showToast) {
-                toastr.info('没有变化，无需提交');
-            }
-        } else if (result.pushed) {
-            toastr.success(`备份完成 ${result.commit.slice(0, 8)}，已推送到远端`);
-        } else {
-            toastr.success(`备份完成 ${result.commit.slice(0, 8)}（未配置远端，仅本地提交）`);
-        }
-        await refreshInfo();
-        return result;
-    } catch (err) {
-        if (showToast) {
-            toastr.error(`备份失败：${err.message}`);
-        }
-        throw err;
-    } finally {
-        setBusy(button, false);
+// ---------- auto backup ----------
+
+function scheduleAutoBackup() {
+    if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
     }
+    const hours = Number(settings.autoBackupHours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+        return;
+    }
+    autoTimer = setInterval(() => {
+        const dataDir = getDataDir(null);
+        performBackup(dataDir, `Auto backup ${new Date().toISOString()}`)
+            .catch((err) => console.error(`[${PLUGIN_ID}] auto backup failed: ${err.message}`));
+    }, hours * 3600 * 1000);
+    console.log(`[${PLUGIN_ID}] auto backup scheduled every ${hours}h`);
 }
 
-async function refreshLog() {
-    const select = document.querySelector('#stgb_log');
-    setBusy(document.querySelector('#stgb_refresh_log'), true, '获取中…');
-    try {
-        const { commits } = await api('/log?fetch=1');
-        select.innerHTML = '';
-        if (commits.length === 0) {
-            select.append(new Option('（暂无提交）', ''));
-            return;
-        }
-        for (const commit of commits) {
-            const date = (commit.date || '').slice(0, 16).replace('T', ' ');
-            select.append(new Option(`${date}  ${commit.subject}  (${commit.short})`, commit.hash));
-        }
-    } catch (err) {
-        toastr.error(`获取提交历史失败：${err.message}`);
-    } finally {
-        setBusy(document.querySelector('#stgb_refresh_log'), false);
-    }
-}
+// ---------- HTTP plumbing ----------
 
-async function restoreSelected() {
-    const select = document.querySelector('#stgb_log');
-    const commit = select.value;
-    if (!commit) {
-        toastr.warning('请先获取提交历史并选择一个恢复点');
-        return;
-    }
-    const label = select.options[select.selectedIndex]?.text || commit;
-    if (!confirm(`确定要恢复到：\n${label}\n\n当前数据将被覆盖为该时点的备份！\n恢复后需要重启 SillyTavern。`)) {
-        return;
-    }
-    if (!confirm('再次确认：这是覆盖性操作，且不可撤销。继续吗？')) {
-        return;
-    }
-    try {
-        await api('/restore', { method: 'POST', body: { confirm: true, commit } });
-        alert(`恢复完成（${commit.slice(0, 8)}）。\n\n请立即重启 SillyTavern，重启前不要做其他操作。`);
-    } catch (err) {
-        toastr.error(`恢复失败：${err.message}`);
-    }
-}
-
-// ---------- quick top-bar button ----------
-
-function injectQuickButton() {
-    document.querySelector('#stgb_quick_btn')?.remove();
-    if (!uiSettings.quickButton) {
-        return;
-    }
-    const anchor = document.querySelector('.drawer-icon.fa-cubes')?.closest('.drawer');
-    if (!anchor) {
-        log('extensions drawer not found; quick button skipped');
-        return;
-    }
-    const button = document.createElement('div');
-    button.id = 'stgb_quick_btn';
-    button.className = 'drawer-icon fa-solid fa-cloud-arrow-up stgb-quick-button fa-fw';
-    button.title = 'Git 立即备份';
-    button.tabIndex = 0;
-    button.addEventListener('click', async () => {
-        button.classList.add('stgb-busy');
+function wrap(handler) {
+    return async (req, res) => {
         try {
-            await backupNow(true);
-        } catch {
-            // toast already shown
-        } finally {
-            button.classList.remove('stgb-busy');
+            const data = await handler(req, res);
+            if (data !== undefined) {
+                res.json(data);
+            }
+        } catch (err) {
+            console.error(`[${PLUGIN_ID}]`, err);
+            const foreign = err.message === 'REFUSE_FOREIGN_REPO';
+            res.status(foreign ? 409 : 500).json({
+                error: foreign
+                    ? 'The data directory already contains a git repository that was not created by this plugin. Remove or take over that .git folder first.'
+                    : err.message,
+            });
         }
-    });
-    anchor.before(button);
+    };
 }
 
-// ---------- init ----------
+function publicSettings() {
+    return { ...settings, token: settings.token ? TOKEN_MASK : '', hasToken: Boolean(settings.token) };
+}
 
-jQuery(async () => {
-    const html = await renderExtensionTemplateAsync(extensionName, 'settings');
-    document.querySelector('#extensions_settings')?.insertAdjacentHTML('beforeend', html);
-
-    document.querySelector('#stgb_auth_type')?.addEventListener('change', applyAuthVisibility);
-    document.querySelector('#stgb_save')?.addEventListener('click', () => {
-        saveSettingsForm().catch((err) => toastr.error(`保存失败：${err.message}`));
-    });
-    document.querySelector('#stgb_test')?.addEventListener('click', testConnection);
-    document.querySelector('#stgb_backup')?.addEventListener('click', () => backupNow(true).catch(() => { }));
-    document.querySelector('#stgb_refresh_log')?.addEventListener('click', refreshLog);
-    document.querySelector('#stgb_restore')?.addEventListener('click', restoreSelected);
-
-    const quickToggle = document.querySelector('#stgb_quick_button_toggle');
-    if (quickToggle) {
-        quickToggle.checked = uiSettings.quickButton;
-        quickToggle.addEventListener('change', () => {
-            uiSettings.quickButton = quickToggle.checked;
-            saveUiSettings();
-            injectQuickButton();
-        });
+function mergeSettings(body) {
+    for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        if (!(key in body)) {
+            continue;
+        }
+        if (key === 'token' && body[key] === TOKEN_MASK) {
+            continue; // keep stored token when the UI sends back the mask
+        }
+        settings[key] = body[key];
     }
+    saveSettings();
+    scheduleAutoBackup();
+    return publicSettings();
+}
 
-    injectQuickButton();
-    await refreshInfo();
-    await loadSettingsForm();
-    log('initialized');
-});
+async function init(router) {
+    router.get('/info', wrap(async (req) => {
+        const dataDir = getDataDir(req);
+        let gitVersion = null;
+        try {
+            const { stdout } = await runGit(['version']);
+            gitVersion = stdout.trim();
+        } catch {
+            // git missing
+        }
+        const repoInitialized = fs.existsSync(path.join(dataDir, MARKER_FILE));
+        let lastCommit = null;
+        if (repoInitialized) {
+            try {
+                const { stdout } = await runGit(['log', '-1', '--pretty=format:%h %cI %s'], dataDir);
+                lastCommit = stdout.trim();
+            } catch {
+                // empty repo
+            }
+        }
+        return {
+            plugin: PLUGIN_ID,
+            gitVersion,
+            dataDir,
+            repoInitialized,
+            lastCommit,
+            remoteConfigured: Boolean(settings.repoUrl),
+            busy,
+        };
+    }));
+
+    router.get('/settings', wrap(async () => publicSettings()));
+
+    router.post('/settings', wrap(async (req) => mergeSettings(req.body || {})));
+
+    router.post('/test', wrap(async () => testConnection()));
+
+    router.post('/backup', wrap(async (req) => {
+        if (busy) {
+            throw new Error('Another backup/restore operation is already running');
+        }
+        busy = true;
+        try {
+            const result = await performBackup(getDataDir(req), (req.body || {}).message);
+            return { ok: true, ...result };
+        } finally {
+            busy = false;
+        }
+    }));
+
+    router.post('/restore', wrap(async (req) => {
+        const body = req.body || {};
+        if (body.confirm !== true) {
+            throw new Error('Restore requires { confirm: true }');
+        }
+        if (busy) {
+            throw new Error('Another backup/restore operation is already running');
+        }
+        busy = true;
+        try {
+            const result = await performRestore(getDataDir(req), body.commit);
+            return { ok: true, restartRequired: true, ...result };
+        } finally {
+            busy = false;
+        }
+    }));
+
+    router.get('/log', wrap(async (req) => {
+        const shouldFetch = (req.query || {}).fetch === '1';
+        return { commits: await getLog(getDataDir(req), shouldFetch) };
+    }));
+
+    scheduleAutoBackup();
+    console.log(`[${PLUGIN_ID}] server plugin initialized`);
+}
+
+function exit() {
+    if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+    }
+}
+
+module.exports = { info, init, exit, _internal: {
+    loadSettings, saveSettings, findGitExecutable, runGit, ensureRepo,
+    performBackup, performRestore, getLog, testConnection,
+    buildGitignore, writeGitignore, remoteUrl, sanitizeRemoteUrl, getDataDir,
+    get settings() { return settings; },
+    set settings(value) { settings = value; },
+} };
