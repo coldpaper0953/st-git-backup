@@ -1,39 +1,42 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableDelayedExpansion
 rem ============================================================
 rem  ST Git Backup - one-click server plugin installer (Windows)
-rem  Run this from the installed UI extension folder:
-rem  SillyTavern\public\scripts\extensions\third-party\st-git-backup\
-rem  It copies the server plugin to SillyTavern\plugins\st-git-backup
-rem  and turns on enableServerPlugins in config.yaml.
+rem  Run from the installed extension folder. It finds the
+rem  SillyTavern root by walking up to config.yaml, then copies
+rem  the server plugin and enables enableServerPlugins.
+rem  Works for extensions installed under either
+rem  public\scripts\extensions\third-party\ or data\<user>\extensions\.
 rem ============================================================
 
 echo === ST Git Backup: server plugin installer ===
 
-set "SRC=%~dp0"
-set "ST_ROOT=%SRC%..\..\..\..\.."
+set "DIR=%~dp0"
+set "ST_ROOT="
 
-pushd "%ST_ROOT%" 2>nul
-if errorlevel 1 (
-    echo [X] Cannot locate the SillyTavern root folder.
-    echo     Run this script from the installed extension folder:
-    echo     SillyTavern\public\scripts\extensions\third-party\st-git-backup\
+for /l %%N in (1,1,10) do (
+    if not defined ST_ROOT (
+        if exist "!DIR!config.yaml" (
+            set "ST_ROOT=!DIR!"
+        ) else (
+            for %%I in ("!DIR!..") do set "DIR=%%~fI\"
+        )
+    )
+)
+
+if not defined ST_ROOT (
+    echo [X] Could not find the SillyTavern root folder -- config.yaml not found.
+    echo     Manual steps: copy this whole folder to SillyTavern\plugins\st-git-backup\
+    echo     then set enableServerPlugins: true in config.yaml.
     pause
     exit /b 1
 )
-set "ST_ROOT=%CD%"
-popd
 
-if not exist "%ST_ROOT%\config.yaml" (
-    echo [X] config.yaml not found under "%ST_ROOT%" - unexpected folder layout.
-    pause
-    exit /b 1
-)
-
-set "DEST=%ST_ROOT%\plugins\st-git-backup"
+echo SillyTavern root: !ST_ROOT!
+set "DEST=%ST_ROOT%plugins\st-git-backup"
 
 echo Copying server plugin to: %DEST%
-robocopy "%SRC%." "%DEST%" /E /XD .git /NFL /NDL /NJH /NJS >nul
+robocopy "%~dp0." "%DEST%" /E /XD .git /NFL /NDL /NJH /NJS >nul
 if errorlevel 8 (
     echo [X] Copy failed - check permissions and try again.
     pause
@@ -41,9 +44,9 @@ if errorlevel 8 (
 )
 
 echo Enabling server plugins in config.yaml...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$f = '%ST_ROOT%\config.yaml'; (Get-Content $f) -replace '^enableServerPlugins:\s*false\s*$', 'enableServerPlugins: true' | Set-Content $f"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$f = '%ST_ROOT%config.yaml'; (Get-Content $f) -replace '^enableServerPlugins:\s*false\s*$', 'enableServerPlugins: true' | Set-Content $f"
 
-findstr /c:"enableServerPlugins: true" "%ST_ROOT%\config.yaml" >nul
+findstr /c:"enableServerPlugins: true" "%ST_ROOT%config.yaml" >nul
 if errorlevel 1 (
     echo [!] Could not edit config.yaml automatically.
     echo     Please open it and set:  enableServerPlugins: true

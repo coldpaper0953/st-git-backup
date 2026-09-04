@@ -11,12 +11,15 @@
                 <b>服务端插件未安装</b>
                 <p>本扩展需要配套的服务端插件才能真正执行 git 操作：</p>
                 <ol>
-                    <li>把扩展目录里的 <code>server-plugin</code> 文件夹复制到
-                        <code>SillyTavern/plugins/st-git-backup/</code></li>
-                    <li>在 <code>config.yaml</code> 中设置 <code>enableServerPlugins: true</code></li>
-                    <li>重启 SillyTavern，刷新本页面</li>
+                    <li><b>自动（推荐）</b>：打开本扩展所在文件夹（位置二选一：
+                        <code>SillyTavern/public/scripts/extensions/third-party/st-git-backup/</code> 或
+                        <code>SillyTavern/data/default-user/extensions/st-git-backup/</code>），
+                        双击 <code>install.bat</code>（Linux/mac 用 <code>sh install.sh</code>）——
+                        脚本会自动复制服务端插件并打开 <code>enableServerPlugins</code>。</li>
+                    <li>重启 SillyTavern，刷新本页面。</li>
                 </ol>
-                <p>详细说明见扩展的 README。</p>
+                <p>手动做法：把扩展文件夹<b>整体</b>复制为 <code>SillyTavern/plugins/st-git-backup/</code>，
+                    再把 config.yaml 的 <code>enableServerPlugins</code> 改成 <code>true</code>，重启。</p>
             </div>
 
             <div id="stgb_content">

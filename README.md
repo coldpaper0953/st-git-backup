@@ -36,16 +36,18 @@ https://github.com/coldpaper0953/st-git-backup
 
 **第 2 步：一键配置服务端（自动）**
 
-打开刚装好的扩展目录：
+打开刚装好的扩展目录（不同版本的 SillyTavern 放在两个位置之一）：
 
 ```
 SillyTavern/public/scripts/extensions/third-party/st-git-backup/
+或
+SillyTavern/data/default-user/extensions/st-git-backup/
 ```
 
 - **Windows**：双击 **`install.bat`**
 - **Linux / macOS**：终端运行 `sh install.sh`
 
-脚本会自动：把服务端插件复制到 `SillyTavern/plugins/st-git-backup/` → 把 `config.yaml` 的 `enableServerPlugins` 改为 `true`。
+脚本会自动找到 SillyTavern 根目录：把服务端插件复制到 `SillyTavern/plugins/st-git-backup/` → 把 `config.yaml` 的 `enableServerPlugins` 改为 `true`。
 
 **重启 SillyTavern**，启动日志出现 `[st-git-backup] server plugin initialized` 即成功。
 
@@ -121,7 +123,7 @@ Browser extensions cannot run git, so the plugin has two parts:
 
 **Step 1 — UI extension**: Top bar → Extensions (puzzle icon) → **Install extension** → paste this repo URL.
 
-**Step 2 — one-click server setup**: open the installed extension folder `SillyTavern/public/scripts/extensions/third-party/st-git-backup/` and run **`install.bat`** (Windows) or `sh install.sh` (Linux/macOS). The script copies the server plugin to `SillyTavern/plugins/st-git-backup/` and sets `enableServerPlugins: true` in config.yaml. Then **restart SillyTavern** and look for `[st-git-backup] server plugin initialized` in the console.
+**Step 2 — one-click server setup**: open the installed extension folder (either `SillyTavern/public/scripts/extensions/third-party/st-git-backup/` or `SillyTavern/data/default-user/extensions/st-git-backup/` depending on your SillyTavern version) and run **`install.bat`** (Windows) or `sh install.sh` (Linux/macOS). The script locates the SillyTavern root automatically, copies the server plugin to `SillyTavern/plugins/st-git-backup/` and sets `enableServerPlugins: true` in config.yaml. Then **restart SillyTavern** and look for `[st-git-backup] server plugin initialized` in the console.
 
 ### Configure
 
