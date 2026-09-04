@@ -1,0 +1,92 @@
+#stgb_quick_btn {
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+#stgb_quick_btn:hover {
+    opacity: 1;
+}
+
+#stgb_quick_btn.stgb-busy {
+    animation: stgb-pulse 1s ease-in-out infinite;
+}
+
+@keyframes stgb-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.stgb-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.stgb-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.stgb-status-dot.ok {
+    background-color: var(--green, #30b566);
+}
+
+.stgb-status-dot.idle {
+    background-color: var(--grey, #888);
+}
+
+.stgb-info-line {
+    font-size: 0.85rem;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.85;
+    word-break: break-all;
+}
+
+.stgb-mono {
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.8rem;
+}
+
+.stgb-warning {
+    background-color: var(--warningColor, #b0600033);
+    border: 1px solid var(--warningColor, #b0600033);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+.stgb-warning ol {
+    margin: 6px 0 6px 20px;
+}
+
+.stgb-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 8px 0;
+}
+
+.stgb-danger {
+    color: var(--warningColor, #d9534f) !important;
+}
+
+.stgb-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0;
+    cursor: pointer;
+}
+
+#stgb_log {
+    width: 100%;
+    margin: 4px 0;
+}
+
+#st-git-backup-settings label {
+    display: block;
+    margin: 6px 0 2px 0;
+}

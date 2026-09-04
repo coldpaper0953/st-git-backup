@@ -1,0 +1,96 @@
+<div id="st-git-backup-settings" class="extension_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b><i class="fa-solid fa-cloud-arrow-up"></i> Git Backup &amp; Restore</b>
+            <div class="inline-drawer-toggle fa-fw fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <!-- Server plugin not installed -->
+            <div id="stgb_server_missing" class="stgb-warning" style="display:none">
+                <b>服务端插件未安装</b>
+                <p>本扩展需要配套的服务端插件才能真正执行 git 操作：</p>
+                <ol>
+                    <li>把扩展目录里的 <code>server-plugin</code> 文件夹复制到
+                        <code>SillyTavern/plugins/st-git-backup/</code></li>
+                    <li>在 <code>config.yaml</code> 中设置 <code>enableServerPlugins: true</code></li>
+                    <li>重启 SillyTavern，刷新本页面</li>
+                </ol>
+                <p>详细说明见扩展的 README。</p>
+            </div>
+
+            <div id="stgb_content">
+                <!-- status -->
+                <div class="stgb-status">
+                    <span id="stgb_status_dot" class="stgb-status-dot idle" title="状态"></span>
+                    <span id="stgb_status_text">检查中…</span>
+                </div>
+                <div class="stgb-info-line">git：<span id="stgb_info_git">…</span></div>
+                <div class="stgb-info-line">数据目录：<span id="stgb_info_dir" class="stgb-mono">…</span></div>
+                <div class="stgb-info-line">最近提交：<span id="stgb_info_last" class="stgb-mono">…</span></div>
+                <hr>
+
+                <!-- settings -->
+                <label for="stgb_repo_url">仓库地址（SSH 或 HTTPS）</label>
+                <input id="stgb_repo_url" type="text" class="text_pole" placeholder="git@github.com:user/repo.git 或 https://github.com/user/repo.git" autocomplete="off">
+
+                <label for="stgb_branch">分支</label>
+                <input id="stgb_branch" type="text" class="text_pole" placeholder="main" autocomplete="off">
+
+                <label for="stgb_auth_type">认证方式</label>
+                <select id="stgb_auth_type" class="text_pole">
+                    <option value="none">无（公开仓库 / 已配置凭据助手）</option>
+                    <option value="ssh">SSH 私钥（推荐）</option>
+                    <option value="pat">HTTPS + Personal Access Token</option>
+                </select>
+
+                <div id="stgb_ssh_row" style="display:none">
+                    <label for="stgb_ssh_key">SSH 私钥路径</label>
+                    <input id="stgb_ssh_key" type="text" class="text_pole" placeholder="C:\Users\你\.ssh\id_ed25519 或 /home/user/.ssh/id_ed25519" autocomplete="off">
+                </div>
+
+                <div id="stgb_token_row" style="display:none">
+                    <label for="stgb_token">Personal Access Token</label>
+                    <input id="stgb_token" type="password" class="text_pole" placeholder="粘贴 token（保存后仅显示掩码）" autocomplete="off">
+                </div>
+
+                <label for="stgb_auto_hours">自动备份间隔（小时，0 = 关闭）</label>
+                <input id="stgb_auto_hours" type="number" min="0" step="1" class="text_pole" value="0">
+
+                <label class="stgb-checkbox">
+                    <input id="stgb_include_secrets" type="checkbox">
+                    包含 secrets.json（<b>不推荐</b>：会把你保存的 API 密钥提交进仓库）
+                </label>
+
+                <label for="stgb_commit_message">提交说明（留空自动生成）</label>
+                <input id="stgb_commit_message" type="text" class="text_pole" placeholder="ST Git Backup" autocomplete="off">
+
+                <div class="stgb-buttons">
+                    <a id="stgb_save" class="menu_button" title="保存设置到服务端"><i class="fa-solid fa-floppy-disk"></i> 保存设置</a>
+                    <a id="stgb_test" class="menu_button" title="测试远端连接"><i class="fa-solid fa-plug"></i> 测试连接</a>
+                    <a id="stgb_backup" class="menu_button" title="立即备份并推送"><i class="fa-solid fa-cloud-arrow-up"></i> 立即备份</a>
+                </div>
+                <hr>
+
+                <!-- restore -->
+                <b><i class="fa-solid fa-clock-rotate-left"></i> 从备份恢复</b>
+                <div class="stgb-buttons">
+                    <a id="stgb_refresh_log" class="menu_button" title="拉取远端并列出提交历史"><i class="fa-solid fa-rotate"></i> 获取提交历史</a>
+                </div>
+                <select id="stgb_log" class="text_pole" size="1">
+                    <option value="">（先点击"获取提交历史"）</option>
+                </select>
+                <div class="stgb-buttons">
+                    <a id="stgb_restore" class="menu_button stgb-danger" title="恢复到选中的提交（覆盖当前数据）"><i class="fa-solid fa-recycle"></i> 恢复到选中提交</a>
+                </div>
+                <hr>
+
+                <!-- quick button -->
+                <label class="stgb-checkbox">
+                    <input id="stgb_quick_button_toggle" type="checkbox">
+                    在顶栏显示"一键备份"图标
+                </label>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,12 @@
+{
+    "display_name": "Git Backup & Restore",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "coldpaper0953",
+    "version": "1.0.0",
+    "homePage": "",
+    "auto_update": false
+}

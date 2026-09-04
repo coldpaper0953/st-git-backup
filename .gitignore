@@ -1,0 +1,7 @@
+# Server plugin local settings — contains tokens / key paths, NEVER commit
+server-plugin/settings.json
+
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
