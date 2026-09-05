@@ -2,36 +2,49 @@
 // Settings live in the extensions panel; a quick "backup now" icon can be
 // injected into the top bar. All git work is done by the companion server
 // plugin (/api/plugins/st-git-backup).
+// Zero-import style: everything via global SillyTavern.getContext().
 
-import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { saveSettingsDebounced } from '../../../../script.js';
+const STGB_PLUGIN_ID = 'st-git-backup';
+const STGB_API_BASE = `/api/plugins/${STGB_PLUGIN_ID}`;
+const STGB_TOKEN_MASK = '********';
 
-const PLUGIN_ID = 'st-git-backup';
-const API_BASE = `/api/plugins/${PLUGIN_ID}`;
-const TOKEN_MASK = '********';
-
-const extensionName = (() => {
-    // this file lives at third-party/<folder>/ui/index.js -> extension root is one level up
-    const dir = new URL('..', import.meta.url).pathname.replace(/\/+$/, '').split('/').pop();
-    return `third-party/${decodeURIComponent(dir || '')}`;
+// derive the extension folder name from our own <script> tag injected by SillyTavern
+const STGB_FOLDER = (() => {
+    const tag = document.querySelector('script[src*="/extensions/"][src$="/ui/index.js"][src*="st-git-backup"]');
+    if (!tag) {
+        return 'st-git-backup'; // fallback: default repo/folder name
+    }
+    const match = tag.src.match(/\/scripts\/extensions\/(.+)\/ui\/index\.js/);
+    return match ? match[1] : 'third-party/st-git-backup';
 })();
+const STGB_BASE_URL = `/scripts/extensions/${STGB_FOLDER}`;
+// folder segment used in /api references is the plain folder name
+const STGB_NAME = STGB_FOLDER.includes('/') ? STGB_FOLDER.split('/').pop() : STGB_FOLDER;
 
-const uiSettings = { ...{ quickButton: true }, ...(extension_settings[PLUGIN_ID] || {}) };
-
-function saveUiSettings() {
-    extension_settings[PLUGIN_ID] = uiSettings;
-    saveSettingsDebounced();
-}
-
-function log(...args) {
+function stgbLog(...args) {
     console.log('[st-git-backup]', ...args);
 }
 
-async function api(path, options = {}) {
-    const ctx = getContext();
-    const response = await fetch(API_BASE + path, {
+function stgbGetContext() {
+    return SillyTavern.getContext();
+}
+
+function stgbUiSettings() {
+    const ctx = stgbGetContext();
+    if (!ctx.extensionSettings[STGB_PLUGIN_ID]) {
+        ctx.extensionSettings[STGB_PLUGIN_ID] = { quickButton: true };
+    }
+    return ctx.extensionSettings[STGB_PLUGIN_ID];
+}
+
+function stgbSaveUiSettings() {
+    stgbGetContext().saveSettingsDebounced();
+}
+
+async function stgbApi(path, options = {}) {
+    const response = await fetch(STGB_API_BASE + path, {
         method: options.method || 'GET',
-        headers: ctx.getRequestHeaders(),
+        headers: stgbGetContext().getRequestHeaders(),
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
     let data = null;
@@ -46,14 +59,14 @@ async function api(path, options = {}) {
     return data;
 }
 
-function setText(selector, value) {
+function stgbSetText(selector, value) {
     const el = document.querySelector(selector);
     if (el) {
         el.textContent = value;
     }
 }
 
-function setBusy(button, busy, busyText) {
+function stgbSetBusy(button, busy, busyText) {
     if (!button) {
         return;
     }
@@ -69,54 +82,53 @@ function setBusy(button, busy, busyText) {
 
 // ---------- server plugin status ----------
 
-async function refreshInfo() {
+async function stgbRefreshInfo() {
     const missing = document.querySelector('#stgb_server_missing');
     const content = document.querySelector('#stgb_content');
     try {
-        const info = await api('/info');
+        const info = await stgbApi('/info');
         if (missing) {
             missing.style.display = 'none';
         }
         if (content) {
             content.style.display = '';
         }
-        setText('#stgb_info_git', info.gitVersion || '未检测到 git（在插件设置里指定 gitPath）');
-        setText('#stgb_info_dir', info.dataDir || '-');
-        setText('#stgb_info_last', info.lastCommit || '（仓库为空）');
+        stgbSetText('#stgb_info_git', info.gitVersion || '未检测到 git（在服务端 settings.json 里设置 gitPath）');
+        stgbSetText('#stgb_info_dir', info.dataDir || '-');
+        stgbSetText('#stgb_info_last', info.lastCommit || '（仓库为空）');
         const dot = document.querySelector('#stgb_status_dot');
         if (dot) {
             dot.className = 'stgb-status-dot ' + (info.remoteConfigured ? 'ok' : 'idle');
         }
-        setText('#stgb_status_text', info.remoteConfigured ? '已配置远端仓库' : '未配置远端仓库');
+        stgbSetText('#stgb_status_text', info.remoteConfigured ? '已配置远端仓库' : '未配置远端仓库');
     } catch (err) {
-        // server plugin not loaded -> show install instructions
         if (missing) {
             missing.style.display = '';
         }
         if (content) {
             content.style.display = 'none';
         }
-        log('server plugin not reachable:', err);
+        stgbLog('server plugin not reachable:', err);
     }
 }
 
 // ---------- settings form ----------
 
-function applyAuthVisibility() {
+function stgbApplyAuthVisibility() {
     const authType = document.querySelector('#stgb_auth_type')?.value;
     document.querySelector('#stgb_ssh_row').style.display = authType === 'ssh' ? '' : 'none';
     document.querySelector('#stgb_token_row').style.display = authType === 'pat' ? '' : 'none';
 }
 
-async function loadSettingsForm() {
+async function stgbLoadSettingsForm() {
     try {
-        const settings = await api('/settings');
+        const settings = await stgbApi('/settings');
         const map = {
             stgb_repo_url: settings.repoUrl,
             stgb_branch: settings.branch || 'main',
             stgb_auth_type: settings.authType || 'none',
             stgb_ssh_key: settings.sshKeyPath,
-            stgb_token: settings.hasToken ? TOKEN_MASK : '',
+            stgb_token: settings.hasToken ? STGB_TOKEN_MASK : '',
             stgb_include_secrets: settings.includeSecrets,
             stgb_auto_hours: settings.autoBackupHours || 0,
         };
@@ -131,13 +143,13 @@ async function loadSettingsForm() {
                 el.value = value ?? '';
             }
         }
-        applyAuthVisibility();
+        stgbApplyAuthVisibility();
     } catch (err) {
-        log('failed to load settings:', err);
+        stgbLog('failed to load settings:', err);
     }
 }
 
-async function saveSettingsForm() {
+async function stgbSaveSettingsForm() {
     const val = (id) => document.querySelector(`#${id}`)?.value ?? '';
     const body = {
         repoUrl: val('stgb_repo_url').trim(),
@@ -148,34 +160,34 @@ async function saveSettingsForm() {
         includeSecrets: document.querySelector('#stgb_include_secrets')?.checked ?? false,
         autoBackupHours: Number(val('stgb_auto_hours')) || 0,
     };
-    const saved = await api('/settings', { method: 'POST', body });
-    document.querySelector('#stgb_token').value = saved.hasToken ? TOKEN_MASK : '';
+    const saved = await stgbApi('/settings', { method: 'POST', body });
+    document.querySelector('#stgb_token').value = saved.hasToken ? STGB_TOKEN_MASK : '';
     toastr.success('设置已保存（保存在服务端插件目录）');
-    await refreshInfo();
+    await stgbRefreshInfo();
 }
 
 // ---------- actions ----------
 
-async function testConnection() {
+async function stgbTestConnection() {
     const button = document.querySelector('#stgb_test');
-    setBusy(button, true, '测试中…');
+    stgbSetBusy(button, true, '测试中…');
     try {
-        await saveSettingsForm();
-        const result = await api('/test');
+        await stgbSaveSettingsForm();
+        const result = await stgbApi('/test');
         toastr.success(`连接成功，远端包含 ${result.refs} 个引用`);
     } catch (err) {
         toastr.error(`连接失败：${err.message}`);
     } finally {
-        setBusy(button, false);
+        stgbSetBusy(button, false);
     }
 }
 
-async function backupNow(showToast = true) {
+async function stgbBackupNow(showToast = true) {
     const button = document.querySelector('#stgb_backup');
-    setBusy(button, true, '备份中…');
+    stgbSetBusy(button, true, '备份中…');
     try {
         const message = document.querySelector('#stgb_commit_message')?.value.trim();
-        const result = await api('/backup', { method: 'POST', body: { message: message || undefined } });
+        const result = await stgbApi('/backup', { method: 'POST', body: { message: message || undefined } });
         if (!result.committed) {
             if (showToast) {
                 toastr.info('没有变化，无需提交');
@@ -185,7 +197,7 @@ async function backupNow(showToast = true) {
         } else {
             toastr.success(`备份完成 ${result.commit.slice(0, 8)}（未配置远端，仅本地提交）`);
         }
-        await refreshInfo();
+        await stgbRefreshInfo();
         return result;
     } catch (err) {
         if (showToast) {
@@ -193,15 +205,15 @@ async function backupNow(showToast = true) {
         }
         throw err;
     } finally {
-        setBusy(button, false);
+        stgbSetBusy(button, false);
     }
 }
 
-async function refreshLog() {
+async function stgbRefreshLog() {
     const select = document.querySelector('#stgb_log');
-    setBusy(document.querySelector('#stgb_refresh_log'), true, '获取中…');
+    stgbSetBusy(document.querySelector('#stgb_refresh_log'), true, '获取中…');
     try {
-        const { commits } = await api('/log?fetch=1');
+        const { commits } = await stgbApi('/log?fetch=1');
         select.innerHTML = '';
         if (commits.length === 0) {
             select.append(new Option('（暂无提交）', ''));
@@ -214,11 +226,11 @@ async function refreshLog() {
     } catch (err) {
         toastr.error(`获取提交历史失败：${err.message}`);
     } finally {
-        setBusy(document.querySelector('#stgb_refresh_log'), false);
+        stgbSetBusy(document.querySelector('#stgb_refresh_log'), false);
     }
 }
 
-async function restoreSelected() {
+async function stgbRestoreSelected() {
     const select = document.querySelector('#stgb_log');
     const commit = select.value;
     if (!commit) {
@@ -233,7 +245,7 @@ async function restoreSelected() {
         return;
     }
     try {
-        await api('/restore', { method: 'POST', body: { confirm: true, commit } });
+        await stgbApi('/restore', { method: 'POST', body: { confirm: true, commit } });
         alert(`恢复完成（${commit.slice(0, 8)}）。\n\n请立即重启 SillyTavern，重启前不要做其他操作。`);
     } catch (err) {
         toastr.error(`恢复失败：${err.message}`);
@@ -242,14 +254,14 @@ async function restoreSelected() {
 
 // ---------- quick top-bar button ----------
 
-function injectQuickButton() {
+function stgbInjectQuickButton() {
     document.querySelector('#stgb_quick_btn')?.remove();
-    if (!uiSettings.quickButton) {
+    if (!stgbUiSettings().quickButton) {
         return;
     }
     const anchor = document.querySelector('.drawer-icon.fa-cubes')?.closest('.drawer');
     if (!anchor) {
-        log('extensions drawer not found; quick button skipped');
+        stgbLog('extensions drawer not found; quick button skipped');
         return;
     }
     const button = document.createElement('div');
@@ -260,7 +272,7 @@ function injectQuickButton() {
     button.addEventListener('click', async () => {
         button.classList.add('stgb-busy');
         try {
-            await backupNow(true);
+            await stgbBackupNow(true);
         } catch {
             // toast already shown
         } finally {
@@ -272,31 +284,36 @@ function injectQuickButton() {
 
 // ---------- init ----------
 
-jQuery(async () => {
-    const html = await renderExtensionTemplateAsync(extensionName, 'ui/settings');
+jQuery(async function () {
+    const settingsResponse = await fetch(`${STGB_BASE_URL}/ui/settings.html`);
+    if (!settingsResponse.ok) {
+        stgbLog('settings.html load failed:', settingsResponse.status, `${STGB_BASE_URL}/ui/settings.html`);
+        return;
+    }
+    const html = await settingsResponse.text();
     document.querySelector('#extensions_settings')?.insertAdjacentHTML('beforeend', html);
 
-    document.querySelector('#stgb_auth_type')?.addEventListener('change', applyAuthVisibility);
+    document.querySelector('#stgb_auth_type')?.addEventListener('change', stgbApplyAuthVisibility);
     document.querySelector('#stgb_save')?.addEventListener('click', () => {
-        saveSettingsForm().catch((err) => toastr.error(`保存失败：${err.message}`));
+        stgbSaveSettingsForm().catch((err) => toastr.error(`保存失败：${err.message}`));
     });
-    document.querySelector('#stgb_test')?.addEventListener('click', testConnection);
-    document.querySelector('#stgb_backup')?.addEventListener('click', () => backupNow(true).catch(() => { }));
-    document.querySelector('#stgb_refresh_log')?.addEventListener('click', refreshLog);
-    document.querySelector('#stgb_restore')?.addEventListener('click', restoreSelected);
+    document.querySelector('#stgb_test')?.addEventListener('click', stgbTestConnection);
+    document.querySelector('#stgb_backup')?.addEventListener('click', () => stgbBackupNow(true).catch(() => { }));
+    document.querySelector('#stgb_refresh_log')?.addEventListener('click', stgbRefreshLog);
+    document.querySelector('#stgb_restore')?.addEventListener('click', stgbRestoreSelected);
 
     const quickToggle = document.querySelector('#stgb_quick_button_toggle');
     if (quickToggle) {
-        quickToggle.checked = uiSettings.quickButton;
+        quickToggle.checked = stgbUiSettings().quickButton;
         quickToggle.addEventListener('change', () => {
-            uiSettings.quickButton = quickToggle.checked;
-            saveUiSettings();
-            injectQuickButton();
+            stgbUiSettings().quickButton = quickToggle.checked;
+            stgbSaveUiSettings();
+            stgbInjectQuickButton();
         });
     }
 
-    injectQuickButton();
-    await refreshInfo();
-    await loadSettingsForm();
-    log('initialized');
+    stgbInjectQuickButton();
+    await stgbRefreshInfo();
+    await stgbLoadSettingsForm();
+    stgbLog('initialized');
 });
