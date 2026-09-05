@@ -188,7 +188,11 @@ async function stgbBackupNow(showToast = true) {
     try {
         const message = document.querySelector('#stgb_commit_message')?.value.trim();
         const result = await stgbApi('/backup', { method: 'POST', body: { message: message || undefined } });
-        if (!result.committed) {
+        if (!result.committed && result.pushed) {
+            if (showToast) {
+                toastr.info('本地无新变化，已确认远端同步');
+            }
+        } else if (!result.committed) {
             if (showToast) {
                 toastr.info('没有变化，无需提交');
             }

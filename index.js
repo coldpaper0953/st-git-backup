@@ -259,17 +259,22 @@ async function performBackup(dataDir, message) {
     const status = await runGit(['status', '--porcelain'], dataDir);
     const result = { committed: false, pushed: false, commit: null };
 
-    if (status.stdout.trim().length === 0) {
-        return result; // nothing changed
+    if (status.stdout.trim().length > 0) {
+        const commitMessage = message || `ST Git Backup ${new Date().toISOString()}`;
+        await runGit(['commit', '-m', commitMessage], dataDir);
+        result.committed = true;
     }
 
-    const commitMessage = message || `ST Git Backup ${new Date().toISOString()}`;
-    await runGit(['commit', '-m', commitMessage], dataDir);
-    result.committed = true;
-    const head = await runGit(['rev-parse', 'HEAD'], dataDir);
-    result.commit = head.stdout.trim();
+    try {
+        const head = await runGit(['rev-parse', '--verify', 'HEAD'], dataDir);
+        result.commit = head.stdout.trim();
+    } catch {
+        // empty repo, nothing to push yet
+    }
 
-    if (settings.repoUrl) {
+    // push even when the working tree was clean — local commits may exist
+    // that were never pushed (e.g. remote was configured after committing)
+    if (settings.repoUrl && result.commit) {
         const branch = await currentBranch(dataDir);
         const pushTarget = remoteUrl(settings.repoUrl);
         await runGit(['push', pushTarget, `HEAD:refs/heads/${branch}`], dataDir, buildEnv());
