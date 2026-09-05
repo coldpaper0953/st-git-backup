@@ -60,6 +60,12 @@
     font-size: 0.8rem;
 }
 
+.stgb-muted {
+    font-size: 0.82rem;
+    opacity: 0.75;
+    margin: 4px 0;
+}
+
 .stgb-warning {
     background-color: var(--warningColor, #b0600033);
     border: 1px solid var(--warningColor, #b0600033);
@@ -83,6 +89,12 @@
     color: var(--warningColor, #d9534f) !important;
 }
 
+.stgb-link {
+    color: var(--SmartThemeLinkColor, #9c53df);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
 .stgb-checkbox {
     display: flex;
     align-items: center;
@@ -91,9 +103,31 @@
     cursor: pointer;
 }
 
-#stgb_log {
+#stgb_snapshots {
     width: 100%;
     margin: 4px 0;
+}
+
+.stgb-guide {
+    margin: 8px 0;
+    border-radius: 8px;
+    border: 1px solid var(--grey30, #4444);
+    padding: 6px 10px;
+}
+
+.stgb-guide summary {
+    cursor: pointer;
+    font-weight: bold;
+    user-select: none;
+}
+
+.stgb-guide-item {
+    margin: 10px 0;
+    font-size: 0.88rem;
+}
+
+.stgb-guide-item ol {
+    margin: 4px 0 4px 20px;
 }
 
 #st-git-backup-settings label {

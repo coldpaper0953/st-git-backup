@@ -1,12 +1,12 @@
 {
-    "display_name": "Git Backup & Restore",
+    "display_name": "云端备份与恢复",
     "loading_order": 100,
     "requires": [],
     "optional": [],
     "js": "ui/index.js",
     "css": "ui/style.css",
     "author": "coldpaper0953",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "homePage": "",
     "auto_update": false
 }

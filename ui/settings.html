@@ -1,98 +1,129 @@
 <div id="st-git-backup-settings" class="extension_settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b><i class="fa-solid fa-cloud-arrow-up"></i> Git Backup &amp; Restore</b>
+            <b><i class="fa-solid fa-cloud-arrow-up"></i> 云端备份与恢复</b>
             <div class="inline-drawer-toggle fa-fw fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
         </div>
         <div class="inline-drawer-content">
 
-            <!-- Server plugin not installed -->
+            <!-- Server plugin not reachable -->
             <div id="stgb_server_missing" class="stgb-warning" style="display:none">
-                <b>服务端插件未安装</b>
-                <p>本扩展需要配套的服务端插件才能真正执行 git 操作：</p>
-                <ol>
-                    <li><b>自动（推荐）</b>：打开本扩展所在文件夹（位置二选一：
-                        <code>SillyTavern/public/scripts/extensions/third-party/st-git-backup/</code> 或
-                        <code>SillyTavern/data/default-user/extensions/st-git-backup/</code>），
-                        双击 <code>install.bat</code>（Linux/mac 用 <code>sh install.sh</code>）——
-                        脚本会自动复制服务端插件并打开 <code>enableServerPlugins</code>。</li>
-                    <li>重启 SillyTavern，刷新本页面。</li>
-                </ol>
-                <p>手动做法：把扩展文件夹<b>整体</b>复制为 <code>SillyTavern/plugins/st-git-backup/</code>，
-                    再把 config.yaml 的 <code>enableServerPlugins</code> 改成 <code>true</code>，重启。</p>
+                <b>未连接到服务端插件</b>
+                <p id="stgb_server_missing_detail">本扩展需要配套的服务端插件才能工作：打开本扩展所在文件夹，双击
+                    <code>install.bat</code>（Linux/mac 用 <code>sh install.sh</code>），然后重启 SillyTavern。</p>
             </div>
 
             <div id="stgb_content">
-                <!-- status -->
-                <div class="stgb-status">
-                    <span id="stgb_status_dot" class="stgb-status-dot idle" title="状态"></span>
-                    <span id="stgb_status_text">检查中…</span>
+
+                <!-- ===== onboarding ===== -->
+                <div id="stgb_setup">
+                    <p>只需一步：在 GitHub 或 Gitee 生成一个<b>私人访问令牌（Token）</b>并粘贴到下面，插件会自动创建私有仓库、完成全部配置，并立即执行第一次备份。</p>
+
+                    <details class="stgb-guide">
+                        <summary>如何获取令牌？（点击展开教程）</summary>
+                        <div class="stgb-guide-item">
+                            <b>GitHub</b>（推荐 fine-grained token）：
+                            <ol>
+                                <li>打开 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub Token 创建页</a>（也可从头像 → Settings → Developer settings 进入）</li>
+                                <li>名字随意，Expiration 选择期建议 1 年以上</li>
+                                <li>Repository access 选 <b>All repositories</b>（或只选你要存放备份的仓库）</li>
+                                <li>Permissions：Repository permissions 里把 <b>Contents 设为 Read and write</b>；若想让插件自动建仓，还需 <b>Administration 设为 Read and write</b></li>
+                                <li>生成后复制 <code>github_pat_</code> 开头的完整 token</li>
+                            </ol>
+                            <span class="stgb-muted">classic token（<a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener">创建入口</a>）只需勾选 <code>repo</code> 一项。</span>
+                        </div>
+                        <div class="stgb-guide-item">
+                            <b>Gitee</b>（国内网络推荐）：
+                            <ol>
+                                <li>打开 <a href="https://gitee.com/profile/personal_access_tokens/new" target="_blank" rel="noopener">Gitee 私人令牌创建页</a>（也可从头像 → 设置 → 安全设置 → 私人令牌进入）</li>
+                                <li>勾选 <b>projects</b> 权限</li>
+                                <li>提交后复制显示的令牌（只显示一次）</li>
+                            </ol>
+                        </div>
+                    </details>
+
+                    <label for="stgb_token_input">粘贴令牌（Token）</label>
+                    <input id="stgb_token_input" type="password" class="text_pole" placeholder="ghp_... / github_pat_... / Gitee 令牌" autocomplete="off" spellcheck="false">
+                    <div class="stgb-buttons">
+                        <a id="stgb_provision" class="menu_button" title="验证令牌并自动完成全部配置"><i class="fa-solid fa-rocket"></i> 开始使用</a>
+                    </div>
+
+                    <div id="stgb_choice" class="stgb-warning" style="display:none">
+                        <p id="stgb_choice_text">云端已有备份（可能来自其他设备）。请选择如何处理：</p>
+                        <div class="stgb-buttons">
+                            <a id="stgb_choice_restore" class="menu_button" title="把云端最新备份恢复到本机"><i class="fa-solid fa-clock-rotate-left"></i> 恢复云端备份到本机</a>
+                            <a id="stgb_choice_overwrite" class="menu_button stgb-danger" title="用本机当前数据覆盖云端（云端备份会丢失）"><i class="fa-solid fa-arrow-up-from-bracket"></i> 以本机数据为准（覆盖云端）</a>
+                            <a id="stgb_choice_cancel" class="menu_button">暂不处理</a>
+                        </div>
+                    </div>
                 </div>
-                <div class="stgb-info-line">git：<span id="stgb_info_git">…</span></div>
-                <div class="stgb-info-line">数据目录：<span id="stgb_info_dir" class="stgb-mono">…</span></div>
-                <div class="stgb-info-line">最近提交：<span id="stgb_info_last" class="stgb-mono">…</span></div>
-                <hr>
 
-                <!-- settings -->
-                <label for="stgb_repo_url">仓库地址（SSH 或 HTTPS）</label>
-                <input id="stgb_repo_url" type="text" class="text_pole" placeholder="git@github.com:user/repo.git 或 https://github.com/user/repo.git" autocomplete="off">
+                <!-- ===== configured main view ===== -->
+                <div id="stgb_main" style="display:none">
+                    <div class="stgb-status">
+                        <span id="stgb_status_dot" class="stgb-status-dot idle" title="状态"></span>
+                        <span id="stgb_status_text">检查中…</span>
+                    </div>
+                    <div class="stgb-info-line">仓库：<span id="stgb_info_repo" class="stgb-mono">…</span></div>
+                    <div class="stgb-info-line">最近备份：<span id="stgb_info_last">…</span></div>
+                    <div class="stgb-info-line">快照数量：<span id="stgb_info_count">…</span>（git：<span id="stgb_info_git" class="stgb-mono">…</span>）</div>
+                    <div class="stgb-info-line">数据目录：<span id="stgb_info_dir" class="stgb-mono">…</span></div>
+                    <div id="stgb_legacy_hint" class="stgb-warning" style="display:none">
+                        检测到旧版（1.x）插件在数据目录留下的 git 仓库。
+                        <a id="stgb_cleanup_legacy" class="stgb-link">一键清理</a>（不影响备份内容）
+                    </div>
 
-                <label for="stgb_branch">分支</label>
-                <input id="stgb_branch" type="text" class="text_pole" placeholder="main" autocomplete="off">
+                    <div class="stgb-buttons">
+                        <a id="stgb_backup" class="menu_button" title="把当前数据打包成快照并推送到云端"><i class="fa-solid fa-cloud-arrow-up"></i> 立即备份</a>
+                    </div>
+                    <hr>
 
-                <label for="stgb_auth_type">认证方式</label>
-                <select id="stgb_auth_type" class="text_pole">
-                    <option value="none">无（公开仓库 / 已配置凭据助手）</option>
-                    <option value="ssh">SSH 私钥（推荐）</option>
-                    <option value="pat">HTTPS + Personal Access Token</option>
-                </select>
+                    <b><i class="fa-solid fa-clock-rotate-left"></i> 从备份恢复</b>
+                    <p class="stgb-muted">选择一个快照点，本机数据将被覆盖为该时点的备份。恢复前插件会先把当前数据作为安全快照推送到云端，可随时反悔。</p>
+                    <select id="stgb_snapshots" class="text_pole" size="1">
+                        <option value="">（加载快照列表…）</option>
+                    </select>
+                    <div class="stgb-buttons">
+                        <a id="stgb_refresh_snapshots" class="menu_button" title="从云端重新拉取快照列表"><i class="fa-solid fa-rotate"></i> 刷新列表</a>
+                        <a id="stgb_restore" class="menu_button stgb-danger" title="恢复到选中的快照（覆盖当前数据）"><i class="fa-solid fa-recycle"></i> 恢复到选中快照</a>
+                    </div>
+                    <hr>
 
-                <div id="stgb_ssh_row" style="display:none">
-                    <label for="stgb_ssh_key">SSH 私钥（文件路径或直接粘贴私钥内容，都会安全保存）</label>
-                    <textarea id="stgb_ssh_key" class="text_pole" rows="3" placeholder="C:\Users\你\.ssh\id_ed25519 或直接粘贴 -----BEGIN OPENSSH PRIVATE KEY----- 开头的整段内容" autocomplete="off" spellcheck="false"></textarea>
+                    <!-- advanced -->
+                    <details class="stgb-guide" id="stgb_advanced">
+                        <summary>高级设置（一般无需改动）</summary>
+                        <label for="stgb_repo_url">仓库地址（手动覆盖，留空 = 自动）</label>
+                        <input id="stgb_repo_url" type="text" class="text_pole" placeholder="https://github.com/用户/仓库.git" autocomplete="off">
+
+                        <label for="stgb_branch">分支</label>
+                        <input id="stgb_branch" type="text" class="text_pole" placeholder="main" autocomplete="off">
+
+                        <label for="stgb_keep_snapshots">云端保留快照数（超出自动清理最旧的）</label>
+                        <input id="stgb_keep_snapshots" type="number" min="1" max="100" step="1" class="text_pole" value="10">
+
+                        <label for="stgb_auto_hours">自动备份间隔（小时，0 = 关闭；多设备请只在一台主力设备开启）</label>
+                        <input id="stgb_auto_hours" type="number" min="0" step="1" class="text_pole" value="0">
+
+                        <label for="stgb_git_path">git 可执行文件路径（留空自动检测）</label>
+                        <input id="stgb_git_path" type="text" class="text_pole" placeholder="自动检测" autocomplete="off">
+
+                        <label class="stgb-checkbox">
+                            <input id="stgb_include_secrets" type="checkbox">
+                            包含 secrets.json（<b>不推荐</b>：会把 API 密钥提交进云端仓库）
+                        </label>
+
+                        <div class="stgb-buttons">
+                            <a id="stgb_save" class="menu_button" title="保存高级设置"><i class="fa-solid fa-floppy-disk"></i> 保存设置</a>
+                            <a id="stgb_test" class="menu_button" title="测试云端连接"><i class="fa-solid fa-plug"></i> 测试连接</a>
+                        </div>
+                    </details>
+
+                    <label class="stgb-checkbox">
+                        <input id="stgb_quick_button_toggle" type="checkbox">
+                        在顶栏显示"一键备份"图标
+                    </label>
+                    <div id="stgb_quick_hint" class="stgb-muted" style="display:none">（顶栏图标未能注入：当前主题下找不到扩展抽屉，可改用面板里的"立即备份"按钮）</div>
                 </div>
-
-                <div id="stgb_token_row" style="display:none">
-                    <label for="stgb_token">Personal Access Token</label>
-                    <input id="stgb_token" type="password" class="text_pole" placeholder="粘贴 token（保存后仅显示掩码）" autocomplete="off">
-                </div>
-
-                <label for="stgb_auto_hours">自动备份间隔（小时，0 = 关闭）</label>
-                <input id="stgb_auto_hours" type="number" min="0" step="1" class="text_pole" value="0">
-
-                <label class="stgb-checkbox">
-                    <input id="stgb_include_secrets" type="checkbox">
-                    包含 secrets.json（<b>不推荐</b>：会把你保存的 API 密钥提交进仓库）
-                </label>
-
-                <label for="stgb_commit_message">提交说明（留空自动生成）</label>
-                <input id="stgb_commit_message" type="text" class="text_pole" placeholder="ST Git Backup" autocomplete="off">
-
-                <div class="stgb-buttons">
-                    <a id="stgb_save" class="menu_button" title="保存设置到服务端"><i class="fa-solid fa-floppy-disk"></i> 保存设置</a>
-                    <a id="stgb_test" class="menu_button" title="测试远端连接"><i class="fa-solid fa-plug"></i> 测试连接</a>
-                    <a id="stgb_backup" class="menu_button" title="立即备份并推送"><i class="fa-solid fa-cloud-arrow-up"></i> 立即备份</a>
-                </div>
-                <hr>
-
-                <!-- restore -->
-                <b><i class="fa-solid fa-clock-rotate-left"></i> 从备份恢复</b>
-                <div class="stgb-buttons">
-                    <a id="stgb_refresh_log" class="menu_button" title="拉取远端并列出提交历史"><i class="fa-solid fa-rotate"></i> 获取提交历史</a>
-                </div>
-                <select id="stgb_log" class="text_pole" size="1">
-                    <option value="">（先点击"获取提交历史"）</option>
-                </select>
-                <div class="stgb-buttons">
-                    <a id="stgb_restore" class="menu_button stgb-danger" title="恢复到选中的提交（覆盖当前数据）"><i class="fa-solid fa-recycle"></i> 恢复到选中提交</a>
-                </div>
-                <hr>
-
-                <!-- quick button -->
-                <label class="stgb-checkbox">
-                    <input id="stgb_quick_button_toggle" type="checkbox">
-                    在顶栏显示"一键备份"图标
-                </label>
             </div>
         </div>
     </div>
