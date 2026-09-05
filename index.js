@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS = {
     maxStoreMB: 400,
     autoBackupHours: 0,
     includeSecrets: false,
+    zipLevel: 1, // 1 = fastest (good for phones), 9 = smallest
     dataDirOverride: '',
     gitPath: '', // empty = auto-detect
     authorName: 'ST Git Backup',
@@ -56,6 +57,7 @@ const DEFAULT_SETTINGS = {
 let settings = loadSettings();
 let meta = loadMeta();
 let busy = false;
+let currentPhase = null; // human-readable phase shown in the UI while busy
 let autoTimer = null;
 
 const info = {
@@ -106,7 +108,7 @@ function publicSettings() {
 function mergeSettings(body) {
     const allowed = [
         'repoUrl', 'branch', 'keepSnapshots', 'maxStoreMB', 'autoBackupHours',
-        'includeSecrets', 'dataDirOverride', 'gitPath', 'repoName',
+        'includeSecrets', 'zipLevel', 'dataDirOverride', 'gitPath', 'repoName',
     ];
     for (const key of allowed) {
         if (key in body) {
@@ -115,6 +117,7 @@ function mergeSettings(body) {
     }
     settings.branch = (settings.branch || 'main').trim() || 'main';
     settings.repoUrl = (settings.repoUrl || '').trim();
+    settings.zipLevel = Math.min(9, Math.max(1, Number(settings.zipLevel) || 1));
     saveSettings();
     scheduleAutoBackup();
     return publicSettings();
@@ -171,7 +174,15 @@ function runGit(args, cwd, { env = {}, input = null } = {}) {
     return new Promise((resolve, reject) => {
         const child = spawn(findGitExecutable(), args, {
             cwd,
-            env: { ...process.env, ...env },
+            // Abort HTTP transfers that stall (<1KB/s for 60s) instead of
+            // hanging for the full timeout — a blocked connection to
+            // github.com should fail in a minute, not ten.
+            env: {
+                ...process.env,
+                GIT_HTTP_LOW_SPEED_LIMIT: '1024',
+                GIT_HTTP_LOW_SPEED_TIME: '60',
+                ...env,
+            },
             windowsHide: true,
         });
         let stdout = '';
@@ -386,10 +397,13 @@ async function pushHistory(commitSha) {
 
 // ---------- backup ----------
 
-async function createSnapshot(dataDir, kind) {
+async function createSnapshot(dataDir, kind, onProgress) {
     const name = snapshotName(new Date(), kind);
     const outPath = path.join(SNAPSHOTS_DIR, name);
-    const result = await zipDirectory(dataDir, outPath, (rel) => isExcludedPath(rel, settings.includeSecrets));
+    const result = await zipDirectory(dataDir, outPath, (rel) => isExcludedPath(rel, settings.includeSecrets), {
+        level: Number(settings.zipLevel) || 1,
+        onProgress,
+    });
     return { name, ...result };
 }
 
@@ -401,8 +415,10 @@ async function performBackup(dataDir, { kind = 'manual', confirmOverwrite = fals
 
     // conflict check before any work — a pending confirm must not be lost
     if (!confirmOverwrite) {
+        currentPhase = '正在检查云端状态…';
         const remoteNames = await remoteSnapshotNames();
         if (remoteHasNewerSnapshots(remoteNames, localSnapshots())) {
+            currentPhase = null;
             throw new HttpError('云端已有比本机更新的备份（可能来自其他设备）。直接备份将覆盖它，那份数据会丢失。', {
                 status: 409,
                 extra: { needConfirm: true, remoteNewest: remoteNames.sort().slice(-1)[0] },
@@ -418,12 +434,17 @@ async function performBackup(dataDir, { kind = 'manual', confirmOverwrite = fals
         return { skipped: true, reason: '数据无变化', snapshot: meta.lastSnapshotName };
     }
 
-    const snapshot = await createSnapshot(dataDir, kind);
+    currentPhase = '正在打包…';
+    const snapshot = await createSnapshot(dataDir, kind, (done, total) => {
+        currentPhase = `正在打包… ${done}/${total} 个文件`;
+    });
     pruneSnapshots();
+    currentPhase = '正在推送到云端…';
     const commitSha = await rebuildHistory();
     if (commitSha) {
         await pushHistory(commitSha);
     }
+    currentPhase = null;
     meta.lastBackupFingerprint = fingerprint;
     meta.lastSnapshotName = snapshot.name;
     meta.lastBackupAt = new Date().toISOString();
@@ -509,6 +530,7 @@ async function performRestore(dataDir, requestedSnapshot) {
     // Resolve the target snapshot FIRST and pin its bytes to a temp file —
     // the safety snapshot below adds a new entry and prunes the store, which
     // must never evict the snapshot we are about to restore.
+    currentPhase = '正在查找目标快照…';
     const localCandidates = localSnapshots().sort();
     let targetName = requestedSnapshot || '';
     let targetSource = null; // { type: 'file', path } | { type: 'remote' }
@@ -549,6 +571,7 @@ async function performRestore(dataDir, requestedSnapshot) {
     const dataFiles = listFiles(dataDir, (rel) => isExcludedPath(rel, settings.includeSecrets));
     if (dataFiles.length > 0) {
         try {
+            currentPhase = '正在生成恢复前安全快照…';
             const snapshot = await createSnapshot(dataDir, 'pre-restore');
             safetySnapshot = snapshot.name;
             pruneSnapshots();
@@ -567,11 +590,13 @@ async function performRestore(dataDir, requestedSnapshot) {
         if (targetSource.type === 'remote') {
             // FETCH_HEAD still points at the pre-safety remote state, which
             // contained the target — the safety push below doesn't touch it.
+            currentPhase = '正在从云端下载快照…';
             targetPath = path.join(os.tmpdir(), `stgb-remote-${Date.now()}.zip`);
             await extractSnapshotFromRemote(targetName, targetPath);
         }
 
         // Unpack to a staging dir first so a corrupt zip can't half-clobber data.
+        currentPhase = '正在解压并覆盖数据…';
         const stagingDir = path.join(STORE_DIR, `staging-${Date.now()}`);
         let stagedCount;
         try {
@@ -815,7 +840,10 @@ function scheduleAutoBackup() {
         busy = true;
         performBackup(getDataDir(null), { kind: 'auto' })
             .catch((err) => console.error(`[${PLUGIN_ID}] auto backup failed:`, err.message))
-            .finally(() => { busy = false; });
+            .finally(() => {
+                busy = false;
+                currentPhase = null;
+            });
     }, hours * 3600 * 1000);
     console.log(`[${PLUGIN_ID}] auto backup scheduled every ${hours}h`);
 }
@@ -860,6 +888,7 @@ async function init(router) {
             storeDir: STORE_DIR,
             legacyRepoDetected: legacyRepoDetected(dataDir),
             busy,
+            currentPhase,
         };
     }));
 
@@ -876,6 +905,7 @@ async function init(router) {
             return await provision((req.body || {}).token);
         } finally {
             busy = false;
+            currentPhase = null;
         }
     }));
 
@@ -895,6 +925,7 @@ async function init(router) {
             });
         } finally {
             busy = false;
+            currentPhase = null;
         }
     }));
 
@@ -909,6 +940,7 @@ async function init(router) {
                 return { snapshots: await listSnapshots({ refresh: true }) };
             } finally {
                 busy = false;
+                currentPhase = null;
             }
         }
         return { snapshots: await listSnapshots({ refresh: false }) };
@@ -927,6 +959,7 @@ async function init(router) {
             return await performRestore(getDataDir(req), body.snapshot || null);
         } finally {
             busy = false;
+            currentPhase = null;
         }
     }));
 

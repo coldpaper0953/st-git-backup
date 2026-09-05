@@ -5,6 +5,7 @@
 
 const STGB_PLUGIN_ID = 'st-git-backup';
 const STGB_API_BASE = `/api/plugins/${STGB_PLUGIN_ID}`;
+let stgbPhasePollTimer = null;
 
 // ST loads extension entries as <script type="module">, so import.meta.url is
 // reliable regardless of how the folder was named or installed.
@@ -180,9 +181,31 @@ function stgbChoiceCancel() {
 
 // ---------- backup ----------
 
+// While the server is busy, poll /info and surface the current phase
+// (打包中 x/y、推送中…) so a long backup doesn't look frozen.
+function stgbStartPhasePolling() {
+    stgbStopPhasePolling();
+    stgbPhasePollTimer = setInterval(async () => {
+        try {
+            const info = await stgbApi('/info');
+            if (info.busy && info.currentPhase) {
+                stgbSetText('#stgb_status_text', info.currentPhase);
+            }
+        } catch { /* transient — ignore */ }
+    }, 2000);
+}
+
+function stgbStopPhasePolling() {
+    if (stgbPhasePollTimer) {
+        clearInterval(stgbPhasePollTimer);
+        stgbPhasePollTimer = null;
+    }
+}
+
 async function stgbBackupNow(options = {}) {
     const button = document.querySelector('#stgb_backup');
     stgbSetBusy(button, true, '备份中…');
+    stgbStartPhasePolling();
     try {
         let result;
         while (true) {
@@ -214,6 +237,7 @@ async function stgbBackupNow(options = {}) {
         toastr.error(`备份失败：${err.message}`);
         return null;
     } finally {
+        stgbStopPhasePolling();
         stgbSetBusy(button, false);
     }
 }
@@ -277,6 +301,7 @@ async function stgbRestore(snapshot) {
     }
     const button = document.querySelector('#stgb_restore');
     stgbSetBusy(button, true, '恢复中…');
+    stgbStartPhasePolling();
     try {
         await stgbFlushSettings();
         const result = await stgbApi('/restore', { method: 'POST', body: { confirm: true, snapshot: target === '' ? null : target } });
@@ -286,6 +311,7 @@ async function stgbRestore(snapshot) {
     } catch (err) {
         toastr.error(`恢复失败：${err.message}`);
     } finally {
+        stgbStopPhasePolling();
         stgbSetBusy(button, false);
     }
 }
@@ -300,6 +326,7 @@ async function stgbLoadSettingsForm() {
             stgb_branch: settings.branch || 'main',
             stgb_keep_snapshots: settings.keepSnapshots ?? 10,
             stgb_auto_hours: settings.autoBackupHours || 0,
+            stgb_zip_level: settings.zipLevel ?? 1,
             stgb_git_path: settings.gitPath || '',
         };
         for (const [id, value] of Object.entries(map)) {
@@ -324,6 +351,7 @@ async function stgbSaveSettingsForm() {
         branch: val('stgb_branch').trim() || 'main',
         keepSnapshots: Math.max(1, Number(val('stgb_keep_snapshots')) || 10),
         autoBackupHours: Math.max(0, Number(val('stgb_auto_hours')) || 0),
+        zipLevel: Math.min(9, Math.max(1, Number(val('stgb_zip_level')) || 1)),
         gitPath: val('stgb_git_path').trim(),
         includeSecrets: document.querySelector('#stgb_include_secrets')?.checked ?? false,
     };
