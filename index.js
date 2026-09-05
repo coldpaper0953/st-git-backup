@@ -68,7 +68,18 @@ const info = {
 function loadSettings() {
     try {
         const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+        const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+        // repair: an older version (or a save performed before the inline-key
+        // feature existed) may have stored pasted key CONTENT in sshKeyPath
+        if (isPastedPrivateKey(loaded.sshKeyPath)) {
+            loaded.sshKeyPath = resolveSshKeyPath(loaded.sshKeyPath);
+            try {
+                fs.writeFileSync(SETTINGS_FILE, JSON.stringify(loaded, null, 4), 'utf8');
+            } catch {
+                // non-fatal; we still use the repaired value in memory
+            }
+        }
+        return loaded;
     } catch {
         return { ...DEFAULT_SETTINGS };
     }
@@ -278,10 +289,23 @@ async function currentBranch(dataDir) {
 async function performBackup(dataDir, message) {
     await ensureRepo(dataDir);
     await runGit(['add', '-A'], dataDir);
-    const status = await runGit(['status', '--porcelain'], dataDir);
+
+    // NOTE: use the staged diff, not `status --porcelain`, to decide whether
+    // to commit. Nested git repositories (script/asset extensions ship their
+    // own .git) show up as gitlinks whose dirty inner content makes porcelain
+    // report "modified" even though add staged nothing -> commit would fail
+    // with "no changes added to commit".
+    let hasStagedChanges = true;
+    try {
+        await runGit(['diff', '--cached', '--quiet'], dataDir);
+        hasStagedChanges = false;
+    } catch {
+        // exit code 1: there are staged changes
+    }
+
     const result = { committed: false, pushed: false, commit: null };
 
-    if (status.stdout.trim().length > 0) {
+    if (hasStagedChanges) {
         const commitMessage = message || `ST Git Backup ${new Date().toISOString()}`;
         await runGit(['commit', '-m', commitMessage], dataDir);
         result.committed = true;
