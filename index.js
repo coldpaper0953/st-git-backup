@@ -32,6 +32,28 @@ const DEFAULT_SETTINGS = {
 };
 
 const TOKEN_MASK = '********';
+const INLINE_KEY_FILE = path.join(__dirname, 'deploy_key_inline');
+
+function isPastedPrivateKey(value) {
+    return typeof value === 'string' && value.trim().startsWith('-----BEGIN');
+}
+
+// The SSH key field accepts either a file path or the key content itself
+// (pasted). Pasted content is written to a plugin-local file and its path
+// is stored instead, so the rest of the pipeline always deals with a file.
+function resolveSshKeyPath(raw) {
+    if (!isPastedPrivateKey(raw)) {
+        return (raw || '').trim();
+    }
+    const content = raw.trim().replace(/\r\n/g, '\n') + '\n';
+    fs.writeFileSync(INLINE_KEY_FILE, content, 'utf8');
+    try {
+        fs.chmodSync(INLINE_KEY_FILE, 0o600);
+    } catch {
+        // best effort — Windows MSYS ssh tolerates default file ACLs
+    }
+    return INLINE_KEY_FILE;
+}
 
 let settings = loadSettings();
 let busy = false;
@@ -374,6 +396,10 @@ function mergeSettings(body) {
         if (key === 'token' && body[key] === TOKEN_MASK) {
             continue; // keep stored token when the UI sends back the mask
         }
+        if (key === 'sshKeyPath') {
+            settings[key] = resolveSshKeyPath(body[key]);
+            continue;
+        }
         settings[key] = body[key];
     }
     saveSettings();
@@ -468,6 +494,8 @@ module.exports = { info, init, exit, _internal: {
     loadSettings, saveSettings, findGitExecutable, runGit, ensureRepo,
     performBackup, performRestore, getLog, testConnection,
     buildGitignore, writeGitignore, remoteUrl, sanitizeRemoteUrl, getDataDir,
+    resolveSshKeyPath, isPastedPrivateKey,
+    INLINE_KEY_FILE,
     get settings() { return settings; },
     set settings(value) { settings = value; },
 } };

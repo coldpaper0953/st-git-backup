@@ -48,8 +48,8 @@
                 </select>
 
                 <div id="stgb_ssh_row" style="display:none">
-                    <label for="stgb_ssh_key">SSH 私钥路径</label>
-                    <input id="stgb_ssh_key" type="text" class="text_pole" placeholder="C:\Users\你\.ssh\id_ed25519 或 /home/user/.ssh/id_ed25519" autocomplete="off">
+                    <label for="stgb_ssh_key">SSH 私钥（文件路径或直接粘贴私钥内容，都会安全保存）</label>
+                    <textarea id="stgb_ssh_key" class="text_pole" rows="3" placeholder="C:\Users\你\.ssh\id_ed25519 或直接粘贴 -----BEGIN OPENSSH PRIVATE KEY----- 开头的整段内容" autocomplete="off" spellcheck="false"></textarea>
                 </div>
 
                 <div id="stgb_token_row" style="display:none">

@@ -2,6 +2,9 @@
 # plugins/st-git-backup/) — contains tokens / key paths, NEVER commit
 /settings.json
 
+# Inline-pasted SSH private key material
+/deploy_key_inline
+
 node_modules/
 *.log
 .DS_Store
