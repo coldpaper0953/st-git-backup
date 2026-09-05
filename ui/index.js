@@ -32,9 +32,17 @@ function stgbGetContext() {
 function stgbUiSettings() {
     const ctx = stgbGetContext();
     if (!ctx.extensionSettings[STGB_PLUGIN_ID]) {
-        ctx.extensionSettings[STGB_PLUGIN_ID] = { quickButton: true };
+        ctx.extensionSettings[STGB_PLUGIN_ID] = { quickButton: false };
     }
-    return ctx.extensionSettings[STGB_PLUGIN_ID];
+    const settings = ctx.extensionSettings[STGB_PLUGIN_ID];
+    // one-time migration: the quick top-bar icon used to default ON; turn it
+    // off once for users who never touched the toggle
+    if (!settings.cloudIconMigrated) {
+        settings.quickButton = false;
+        settings.cloudIconMigrated = true;
+        ctx.saveSettingsDebounced();
+    }
+    return settings;
 }
 
 function stgbSaveUiSettings() {
@@ -289,6 +297,10 @@ function stgbInjectQuickButton() {
 // ---------- init ----------
 
 jQuery(async function () {
+    // 等待 SillyTavern context 就绪
+    for (let i = 0; i < 100 && !(typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     const settingsResponse = await fetch(`${STGB_BASE_URL}/ui/settings.html`);
     if (!settingsResponse.ok) {
         stgbLog('settings.html load failed:', settingsResponse.status, `${STGB_BASE_URL}/ui/settings.html`);

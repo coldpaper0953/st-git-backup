@@ -16,6 +16,16 @@
     50% { opacity: 1; }
 }
 
+/* ST 的 .menu_button 默认 width: min-content，长中文会自动按字断行；
+   覆盖为不换行 + 自适应宽度，图标与文字横排 */
+.stgb-buttons .menu_button {
+    width: auto;
+    min-width: 0;
+    white-space: nowrap;
+    gap: 6px;
+    padding: 5px 10px;
+}
+
 .stgb-status {
     display: flex;
     align-items: center;
