@@ -181,7 +181,7 @@ async function stgbTestConnection() {
     stgbSetBusy(button, true, '测试中…');
     try {
         await stgbSaveSettingsForm();
-        const result = await stgbApi('/test');
+        const result = await stgbApi('/test', { method: 'POST' });
         toastr.success(`连接成功，远端包含 ${result.refs} 个引用`);
     } catch (err) {
         toastr.error(`连接失败：${err.message}`);

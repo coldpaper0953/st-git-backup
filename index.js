@@ -466,7 +466,7 @@ async function init(router) {
 
     router.post('/settings', wrap(async (req) => mergeSettings(req.body || {})));
 
-    router.post('/test', wrap(async () => testConnection()));
+    router.all('/test', wrap(async () => testConnection()));
 
     router.post('/backup', wrap(async (req) => {
         if (busy) {
