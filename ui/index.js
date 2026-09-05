@@ -112,7 +112,7 @@ async function stgbRefreshInfo() {
         if (dot) {
             dot.className = 'stgb-status-dot ok';
         }
-        stgbSetText('#stgb_status_text', info.busy ? '操作进行中…' : '云端备份已就绪');
+        stgbSetText('#stgb_status_text', info.busy ? (info.currentPhase || '操作进行中…') : '云端备份已就绪');
         stgbShow(document.querySelector('#stgb_legacy_hint'), Boolean(info.legacyRepoDetected));
 
         if (info.configured) {
@@ -136,6 +136,22 @@ async function stgbRefreshInfo() {
 
 // ---------- onboarding ----------
 
+// "更换令牌": reveal the token input even while already configured, so the
+// user can switch platform/account without touching config files.
+function stgbSwitchToken() {
+    stgbShow(document.querySelector('#stgb_setup'), true);
+    stgbShow(document.querySelector('#stgb_main'), false);
+    stgbShow(document.querySelector('#stgb_cancel_switch'), true);
+    document.querySelector('#stgb_token_input')?.focus();
+}
+
+function stgbCancelSwitch() {
+    stgbShow(document.querySelector('#stgb_cancel_switch'), false);
+    stgbShow(document.querySelector('#stgb_setup'), false);
+    stgbShow(document.querySelector('#stgb_main'), true);
+    stgbRefreshInfo();
+}
+
 async function stgbProvision() {
     const token = document.querySelector('#stgb_token_input')?.value.trim();
     if (!token) {
@@ -148,6 +164,7 @@ async function stgbProvision() {
         const result = await stgbApi('/provision', { method: 'POST', body: { token } });
         toastr.success(`已连接 ${result.platform === 'gitee' ? 'Gitee' : 'GitHub'}（${result.login}），仓库 ${result.repo} 已就绪`);
         document.querySelector('#stgb_token_input').value = '';
+        stgbShow(document.querySelector('#stgb_cancel_switch'), false);
         if (result.remoteHasSnapshots) {
             stgbShow(document.querySelector('#stgb_choice'), true);
         } else {
@@ -434,6 +451,8 @@ jQuery(async function () {
     document.querySelector('#extensions_settings')?.insertAdjacentHTML('beforeend', html);
 
     document.querySelector('#stgb_provision')?.addEventListener('click', stgbProvision);
+    document.querySelector('#stgb_cancel_switch')?.addEventListener('click', stgbCancelSwitch);
+    document.querySelector('#stgb_switch_token')?.addEventListener('click', stgbSwitchToken);
     document.querySelector('#stgb_choice_restore')?.addEventListener('click', stgbChoiceRestore);
     document.querySelector('#stgb_choice_overwrite')?.addEventListener('click', stgbChoiceOverwrite);
     document.querySelector('#stgb_choice_cancel')?.addEventListener('click', stgbChoiceCancel);
